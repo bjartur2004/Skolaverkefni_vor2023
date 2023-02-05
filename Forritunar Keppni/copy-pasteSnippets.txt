@@ -1,0 +1,43 @@
+#nokkur input í línu með bili á milli
+a,b=map(int,input().split())
+
+#einfalt int input
+n=int(input())
+
+#númer áhvarðar hve mögt input fylgja
+n=int(input())
+listi=[]
+for x in range(n):
+    listi.append(int(input()))
+
+#list to string
+s = "".join([str(x) for x in listi])
+
+#string to char list
+s = [*s]
+
+
+#runa af tölum í int lista
+listi=input().split()
+listi=[int(x) for x in listi]
+
+#binary search
+
+listi.sort()
+
+tala=500 #finna tölur sem eru minni eða samasem 500
+
+lo = 0
+hi = len(listi)-1
+fjoldi = 0
+
+while lo <= hi:
+    mid = (hi+lo)//2
+
+    if listi[mid] <= tala:
+        fjoldi = mid+1
+        lo = mid+1
+    else:
+        hi = mid-1
+
+print(fjoldi)
