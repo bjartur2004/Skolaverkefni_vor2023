@@ -1,15 +1,38 @@
 
 "use strict";
 
+if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+    document.documentElement.requestFullscreen();
+    screen.orientation.lock('landscape');
+  }
+
 let canvas = document.getElementById('Main');
 let ctx = canvas.getContext('2d');
 
 let lastUpdate = Date.now();
 
+let startX, startY, endX, endY;
 
 let obsticles = [];
 
+let keyboardMode = true;
 
+let tap = false;
+canvas.width = window.innerWidth-50;
+canvas.height = window.innerHeight-50;
+
+window.addEventListener("resize", function() {
+  canvas.width = window.innerWidth-50;
+  canvas.height = window.innerHeight-50;
+});
+
+function clampVector(vector, canvasWidth, canvasHeight) {
+    return [
+      Math.max(0, Math.min(vector[0], canvasWidth)),
+      Math.max(0, Math.min(vector[1], canvasHeight))
+    ];
+}
+  
 function randint(max) {
     return Math.floor(Math.random() * max);
 }
@@ -19,6 +42,11 @@ function normalize(vector) {
     return [vector[0] / magnitude, vector[1] / magnitude];
 }
 
+function circlesOverlap(x1, y1, r1, x2, y2, r2) {
+    const distance = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+    return distance < r1 + r2;
+}
+  
 function generateObsticles(){
     let maxTests = 10;
     let minSize = [20, 20];
@@ -63,6 +91,8 @@ function getValidEntityPlacement(entitySize, maxTests = 50){
             return pos;
         }
     }
+
+    return [0,0];
 
 }
 
@@ -122,17 +152,36 @@ class PacMan{
         this.mouthAnimationDirection = -1;
         this.mouthAnimationSpeed = 0.0005;
         this.eyeSide = 1;
+        this.stig = 0;
+        this.lif = 3;
+        this.invinsibility = 1000;
+        this.invinsCount = 0;
+        this.powerMode = false;
+        this.powerTime = 10000;
+        this.powerCount = 0;
     }
 
     move(){
         this.pos[0] += this.velocity[0];
         this.pos[1] += this.velocity[1];
+        this.pos = clampVector(this.pos, canvas.width, canvas.height);
     }
 
     draw(){
         let now = Date.now();
         let dt = now - lastUpdate;
         lastUpdate = now;
+
+        if(this.invinsCount > 0){
+            this.invinsCount -= dt;
+        }        
+        
+        if(this.powerCount > 0){
+            this.powerCount -= dt;
+            if(this.powerCount < 0){
+                this.powerMode = false;
+            }
+        }
 
         if(this.mouthAngle <= 0){
             this.mouthAnimationDirection = 1;
@@ -178,6 +227,19 @@ class PacMan{
         this.velocity = [this.speed * dir[1], this.speed * dir[0]];
         this.rotation = Math.atan2(dir[0], dir[1]);
         this.eyeSide = Math.abs(this.rotation) > 2.2 ? -1 : 1;
+    }
+
+    touchTurn(){
+        this.velocity[0] = (endX - startX)/1000;
+        this.velocity[1] = (endY - startY)/1000;
+
+        this.rotation = -Math.atan2(this.velocity[0], this.velocity[1]);
+        this.eyeSide = Math.abs(this.rotation) > 2.2 ? -1 : 1;
+    }
+
+    eat(){
+        console.log("eat");
+        this.stig += 1;
     }
 };
 
@@ -249,6 +311,22 @@ class Goast{
         ctx.rotate(-this.rotation);
         ctx.translate(-this.pos[0], -this.pos[1]);
     }
+
+    checkHit(){
+        if(circlesOverlap(this.pos[0], this.pos[1], 20, player.pos[0], player.pos[1], 20)){
+            if(player.powerMode){
+                goasts.splice(goasts.indexOf(this), 1);
+            }else{
+                if(player.invinsCount <= 0){
+                    player.lif -= 1;
+                    player.invinsCount = player.invinsibility;
+                    if(player.lif <= 0){
+                        tap = true;
+                    }
+                }
+            }
+        }
+    }
 };
 
 
@@ -282,27 +360,78 @@ class Obsticle{
 class Pellet{
     constructor(pos){
         this.pos = pos;
+        this.isEnabled = true;
     }
 
     draw() {
-        ctx.beginPath();
-        ctx.arc(this.pos[0], this.pos[1], 7, 0, 2*Math.PI);
-        ctx.fillStyle = "rgb(200,200,200)";
-        ctx.strokeStyle = "rgb(0,0,0)";
-        ctx.fill();
-        ctx.stroke();
+        if(this.isEnabled){
+            ctx.beginPath();
+            ctx.arc(this.pos[0], this.pos[1], 7, 0, 2*Math.PI);
+            ctx.fillStyle = "rgb(200,200,200)";
+            ctx.strokeStyle = "rgb(0,0,0)";
+            ctx.fill();
+            ctx.stroke();
+        }
+    }
+
+    collitionCheck(){
+        if(this.isEnabled){
+            const dx = player.pos[0] - this.pos[0];
+            const dy = player.pos[1] - this.pos[1];
+            if(Math.sqrt(dx * dx + dy * dy) < player.size){
+                player.eat();
+                this.isEnabled = false;
+            }
+        }
     }
 };
 
+
+class PowerPellet{
+    constructor(pos){
+        this.pos = pos;
+        this.isEnabled = true;
+    }
+
+    draw() {
+        if(this.isEnabled){
+            const d = new Date();
+            let ms = d.getMilliseconds();
+
+            ctx.beginPath();
+            ctx.arc(this.pos[0], this.pos[1], 12, 0, 2*Math.PI);
+            ctx.fillStyle = `rgb(200,200,${ms})`;
+            ctx.strokeStyle = "rgb(0,0,0)";
+            ctx.fill();
+            ctx.stroke();
+        }
+    }
+
+    collitionCheck(){
+        if(this.isEnabled){
+            const dx = player.pos[0] - this.pos[0];
+            const dy = player.pos[1] - this.pos[1];
+            if(Math.sqrt(dx * dx + dy * dy) < player.size){
+                player.powerMode = true;
+                player.powerCount = player.powerTime;
+                player.stig += 3;
+                this.isEnabled = false;
+            }
+        }
+    }
+};
 
 let player;
 let goasts = [];
 let pellets = [];
 
-//let box = new Obsticle(200,200,250,250,[255,0,255]);
 
 
 function init() {
+    goasts = [];
+    pellets = [];
+    obsticles = [];
+
     let numberOfObstricles = 15;
     for(let i = 0; i < numberOfObstricles; i++){
         generateObsticles();
@@ -314,29 +443,52 @@ function init() {
 
     }
 
-    let numberOfPellets = 20;
+    let numberOfPellets = 10;
     for(let i = 0; i < numberOfPellets; i++){
-        pellets.push(new Pellet(getValidEntityPlacement([50,50])));
+        let pos = getValidEntityPlacement([50,50]);
+        if(pos != [0,0]){
+            pellets.push(new Pellet(pos));
+        }
     }
 
+    let numberOfPowerPellets = 4;
+    for(let i = 0; i < numberOfPowerPellets; i++){
+        let pos = getValidEntityPlacement([50,50]);
+        if(pos != [0,0]){
+            pellets.push(new PowerPellet(pos));
+        }
+    }
     player = new PacMan(getValidEntityPlacement([40,40], 5000));
 
     window.requestAnimationFrame(draw);
 }
 
 function draw() {
-    ctx.clearRect(0, 0, 1200, 700); // clear canvas
+    ctx.clearRect(0, 0, window.innerWidth-50, window.innerHeight-50); // clear canvas
+
+
+    if(keyboardMode){
+        player.turn();
+    }
+
 
     const time = new Date();
-    player.turn();
     for(let i = 0; i < obsticles.length; i++){
         CircleBoxCollition(player.velocity, player.pos, player.size, obsticles[i].pos, obsticles[i].size);
     }
+
+    for(let i = 0; i < pellets.length; i++){
+        pellets[i].collitionCheck();
+    }
+
+
     player.move();
 
     for(let i = 0; i < goasts.length; i++){
         goasts[i].turn();
         goasts[i].move();
+
+        goasts[i].checkHit();
     }
 
 
@@ -355,12 +507,43 @@ function draw() {
     
     player.draw();
 
+
+    ctx.font = "48px sans-serif";
+    ctx.fillText(`Stig: ${player.stig}`, 80, 50);    
     
-    window.requestAnimationFrame(draw);
+    ctx.font = "48px sans-serif";
+    ctx.fillText(`Lif: ${player.lif}`, 80, 100);
+
+    if(player.stig >= pellets.length-1){
+        tap = true;
+    }
+
+    if(tap){
+        ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+        ctx.fillStyle = "white";
+        ctx.font = "48px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Leik Lokið", canvas.width / 2, canvas.height / 2 - 50);
+      
+        ctx.fillStyle = "black";
+        ctx.fillRect(canvas.width / 2 - 75, canvas.height / 2, 150, 50);
+      
+        ctx.fillStyle = "white";
+        ctx.font = "24px sans-serif";
+        ctx.fillText("Byrja Aftur", canvas.width / 2, canvas.height / 2 + 30);
+    }
+
+    if(!tap){
+        window.requestAnimationFrame(draw);
+    }
 }
 
 let dir = [0,0];
 document.addEventListener("keydown", function(event){
+    keyboardMode = true;
+
     if(event.code === "KeyW"){
         dir[0] = -1;
     }
@@ -388,7 +571,35 @@ document.addEventListener("keyup", function(event) {
     else if(event.code === "KeyD"){
         dir[1] = 0;
     }
+
 });
+
+
+canvas.addEventListener("touchstart", function(event) {
+    keyboardMode = false;
+  startX = event.touches[0].clientX;
+  startY = event.touches[0].clientY;
+});
+
+canvas.addEventListener("touchend", function(event) {
+  endX = event.changedTouches[0].clientX;
+  endY = event.changedTouches[0].clientY;
+  console.log(startX,endX);
+  player.touchTurn();
+});
+
+canvas.addEventListener("click", function(event) {
+    const x = event.clientX;
+    const y = event.clientY;
+    if(tap){
+        if (x >= canvas.width / 2 - 75 && x <= canvas.width / 2 + 75 &&
+        y >= canvas.height / 2 && y <= canvas.height / 2 + 50) {
+        tap = false;
+        init();
+        }
+    }
+
+  });
   
 
 init();
